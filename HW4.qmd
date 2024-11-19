@@ -18,7 +18,14 @@ editor_options:
 ## Load packages
 
 ```{r}
+#| code-fold: true 
+#| code-summary: "Show packages used in this analysis"
 
+library(tidyverse)
+library(here)
+library(sf)
+library(terra)
+library(tmap)
 ```
 
 ## Background
@@ -53,22 +60,140 @@ Suitable growing conditions for shrimp:
 
 ## Analysis
 
+*Pseudo code:*
+
+1. Prepare data. Load all necessary data and make sure they're all in the same CRS. Combine the SST data into a raster stack. If not, transform everything to WGS 84 (`EPSG:4326`).
+
+2. Process data. Find the mean SST from 2008-2012, convert it from Kelvin to Celsius, resample the bathy raster to match the resolution, extent, and position of the SST raster, and crop the depth raster to match the extent of the SST raster.
+
+3. Find suitable locations. Determine which locations meet the suitable growing conditions for oysters and littleneck clams.
+
 #### Load data
 
 ```{r}
+#| code-fold: true 
+#| code-summary: "Show the code"
 
+# shapefile for West Coast EEZ
+wc_eez <- st_read(here("data/wc_regions_clean.shp"))
+
+# bathymetry raster
+bathy <- rast(here("data/depth.tif"))
+
+# SST rasters
+sst_2008 <- rast(here("data/average_annual_sst_2008.tif"))
+sst_2009 <- rast(here("data/average_annual_sst_2009.tif"))
+sst_2010 <- rast(here("data/average_annual_sst_2010.tif"))
+sst_2011 <- rast(here("data/average_annual_sst_2011.tif"))
+sst_2012 <- rast(here("data/average_annual_sst_2012.tif"))
+
+# SST raster stack 
+sst_stack <- c(sst_2008, sst_2009, sst_2010, sst_2011, sst_2012)
+#plot(sst_stack)
 ```
 
-#### Prepare data
+#### Check the CRS of each dataset & transform to that of the `wc_eez` shapefile if they don't match
 
 ```{r}
+#| code-fold: true
+#| code-summary: "Show the code"
 
+# # check if each dataset has the same CRS
+# crs(wc_eez) == crs(bathy)
+# crs(wc_eez) == crs(sst_stack)
+# crs(bathy) == crs(sst_stack)
+
+# none are in the same CRS; transform all to WGS 84
+bathy <- project(bathy, 
+                 "EPSG:4326")
+sst_stack <- project(sst_stack, 
+                     "EPSG:4326")
+wc_eez <- st_transform(wc_eez, 
+                       crs = st_crs(bathy))
+
+# check if they are now in the same CRS
+if(crs(wc_eez) == crs(bathy) & crs(wc_eez) == crs(sst_stack)) {
+  print("Carry on! All datasets are now in the same CRS") 
+} else {
+  warning("STOP! Datasets are not in the same CRS")
+}
 ```
 
 #### Process data
 
 ```{r}
+# find the mean SST from 2008-2012
+# create a single raster of average SST
+sst_mean <- mean(sst_stack)
+# plot(sst_mean) # QC to make sure this created one raster
 
+
+# convert average SST from Kelvin to Celsius
+# subtract 273.15 from each grid cell in the raster
+sst_mean_celsius <- sst_mean - 273.15
+# plot(sst_mean_celsius) # QC to make sure this worked
+
+
+# resample the bathy raster 
+# match the resolution, extent, and position of the SST raster
+bathy_resample <- resample(bathy, 
+                           sst_mean_celsius, 
+                           method = "near")
+
+
+# crop the depth raster to match the extent of the SST raster 
+bathy_crop <- crop(bathy_resample, 
+                   sst_mean_celsius, 
+                   mask = TRUE)
+```
+
+#### QC: Check that the depth & SST data match in resolution, extent, and CRS
+
+```{r}
+#| code-fold: true
+#| code-summary: "Show the code"
+
+# resolution 
+if(all(res(bathy_crop) == res(sst_mean_celsius))) {
+  print("The bathy and SST have the same resolution.")
+} else {
+  warning("Stop! Resolution does not match.")
+}
+
+# extent
+if(ext(bathy_crop) == ext(sst_mean_celsius)) {
+  print("The bathy and SST raster have the same extent.")
+} else {
+  warning("STOP! The bathy and SST raster do not have the same extent.")
+}
+
+# CRS
+if(crs(bathy_crop) == crs(sst_mean_celsius)) {
+  print("The bathy and SST data have the same CRS.")
+} else {
+  warning("STOP! The bathy and SST data do not have the same CRS.")
+}
+```
+
+#### Plot the bathymetric and SST data
+
+```{r}
+#| label: fig-data
+#| fig-cap: "Bathymetric and sea surface temperature (SST) data for the West Coast of the US used in the analysus."
+#| code-fold: true
+#| code-summary: "Show the code"
+
+map1 <- tm_graticules(lines = FALSE) + 
+tm_shape(bathy_crop) + 
+  tm_raster(palette = "Blues", 
+            breaks = c(-4000, -2000, -1000, -500, -100, -50, 0), 
+            title = "Bathymetry (m)") + 
+tm_shape(wc_eez) + 
+  tm_borders(col = "black", 
+              lwd = 1.5) + 
+  tm_layout(legend.outside = TRUE, 
+            frame = FALSE)
+map1
 ```
 
 #### Find suitable locations
