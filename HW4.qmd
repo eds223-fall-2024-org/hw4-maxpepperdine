@@ -26,47 +26,67 @@ library(here)
 library(sf)
 library(terra)
 library(tmap)
+library(patchwork)
 ```
 
 ## Background
 
-With an ever growing human population, marine aquaculture has the potential to play a significant role global food supply, and is a more sustainable option than land-based meat production (Hall et al., 2011). A study that mapped the global potential for marine aquaculture based on multiple constraints (e.g., ship traffic, dissolved oxygen, bottom depth) found that global seafood demand could be met using less than 0.015% of the global ocean area (Gentry et al., 2017). 
+With an ever growing human population, marine aquaculture has the potential to play a significant role global food supply, and is a more sustainable option than land-based meat production (Hall et al., 2011). A study that mapped the global potential for marine aquaculture based on multiple constraints (e.g., ship traffic, dissolved oxygen, bottom depth) found that global seafood demand could be met using less than 0.015% of the global ocean area (Gentry et al., 2017).
 
-This analysis aims to determine which Exclusive Economic Zones (EEZ) on the West Coast of the US are best suited to develop marine aquaculture for several species of oysters and Pacific littleneck clams (*Leukoma staminea*),two of the most common species farmed in marine aquaculture on the West Coast. Suitable locations were determined based on range of suitable sea surface temperature (SST) and depth values for each species listed below. Oyster conditions were provided in the assignment description, and suitable temperatures and depths for the littleneck clam were selected based on Shaw (1986) and Harbo (1997). 
+This analysis aims to determine which Exclusive Economic Zones (EEZ) on the West Coast of the US are best suited to develop marine aquaculture for several species of oysters and Pacific littleneck clams (*Leukoma staminea*),two of the most common species farmed in marine aquaculture on the West Coast. Suitable locations were determined based on range of suitable sea surface temperature (SST) and depth values for each species listed below. Oyster conditions were provided in the assignment description, and suitable temperatures and depths for the littleneck clam were selected based on Shaw (1986) and Harbo (1997).
 
 Suitable growing conditions for oysters:
 
-- `sea surface temperature`: 11-30°C
-- `depth`: 0-70 meters below sea level
+-   `sea surface temperature`: 11-30°C
+-   `depth`: 0-70 meters below sea level
 
-Suitable growing conditions for shrimp:
+Suitable growing conditions for the Pacific littleneck clam:
 
-- `sea surface temperature`: 0-25°C
-- `depth`: 0-46 meters below sea level
+-   `sea surface temperature`: 0-25°C
+-   `depth`: 0-46 meters below sea level
 
 ## Data description
 
 #### Sea surface temperature (SST)
 
-...
+Annual sea surface temperature (SST) from the years 2008 to 2012 were used to characterize the average SST within the region. This data was originally generated from [NOAA’s 5km Daily Global Satellite Sea Surface Temperature Anomaly v3.1.](https://coralreefwatch.noaa.gov/product/5km/index_5km_ssta.php)
+
+Data files:
+
+-   `average_annual_sst_2008.tif`
+-   `average_annual_sst_2009.tif`
+-   `average_annual_sst_2010.tif`
+-   `average_annual_sst_2011.tif`
+-   `average_annual_sst_2012.tif`
 
 #### Bathyemtry
 
-...
+Bathymetric data was sourced from [General Bathymetric Chart of the Oceans (GEBCO)](https://www.gebco.net/data_and_products/gridded_bathymetry_data/#area) to characterize the depth of the ocean (m below sea level).
+
+Data file: `depth.tif`
 
 #### Exclusive Economic Zones (EEZ)
 
-...
+Maritime boundaries were designated using Exclusive Economic Zones (EEZs) off of the west coast of US from [Marine Regions](https://www.marineregions.org/eez.php).
+
+Data file: `wc_regions_clean.shp`
 
 ## Analysis
 
 *Pseudo code:*
 
-1. Prepare data. Load all necessary data and make sure they're all in the same CRS. Combine the SST data into a raster stack. If not, transform everything to WGS 84 (`EPSG:4326`).
+1.  Prepare data. Load all necessary data and make sure they're all in the same CRS. Combine the SST data into a raster stack. If not, transform everything to WGS 84 (`EPSG:4326`).
 
-2. Process data. Find the mean SST from 2008-2012, convert it from Kelvin to Celsius, resample the bathy raster to match the resolution, extent, and position of the SST raster, and crop the depth raster to match the extent of the SST raster.
+2.  Process data. Find the mean SST from 2008-2012, convert it from Kelvin to Celsius, resample the bathy raster to match the resolution, extent, and position of the SST raster, and crop the depth raster to match the extent of the SST raster.
 
-3. Find suitable locations. Determine which locations meet the suitable growing conditions for oysters and littleneck clams.
+3.  Find suitable locations. Determine which locations meet the suitable growing conditions for oysters and littleneck clams. Create a function that has the following characteristics:
+
+-   **arguments**:
+    -   minimum and maximum sea surface temperature
+    -   minimum and maximum depth
+    -   species name
+-   **outputs**:
+    -   map of EEZ regions colored by amount of suitable area
 
 #### Load data
 
@@ -179,12 +199,13 @@ if(crs(bathy_crop) == crs(sst_mean_celsius)) {
 
 ```{r}
 #| label: fig-data
-#| fig-cap: "Bathymetric and sea surface temperature (SST) data for the West Coast of the US used in the analysus."
+#| fig-cap: "Bathymetric (m below sea level) and sea surface temperature (SST) (°C) data for the West Coast of the US used in the analysis. West Coast Exclusive Economic Zones (EEZ) are outlined in black."
 #| code-fold: true
 #| code-summary: "Show the code"
 
 map1 <- tm_graticules(lines = FALSE) + 
-tm_shape(bathy_crop) + 
+tm_shape(bathy_crop, 
+         is.master = TRUE) + 
   tm_raster(palette = "Blues", 
             breaks = c(-4000, -2000, -1000, -500, -100, -50, 0), 
             title = "Bathymetry (m)") + 
@@ -193,18 +214,61 @@ tm_shape(wc_eez) +
               lwd = 1.5) + 
   tm_layout(legend.outside = TRUE, 
             frame = FALSE)
-map1
+#map1
+
+
+map2 <- tm_graticules(lines = FALSE) +
+tm_shape(sst_mean_celsius, 
+         is.master = TRUE) + 
+  tm_raster(palette = "viridis", 
+            style = "cont", 
+            title = "Sea Surface Temperature (°C)") +
+tm_shape(wc_eez) + 
+  tm_borders(col = "black", 
+              lwd = 1.5) + 
+  tm_layout(legend.outside = TRUE, 
+            frame = FALSE)
+#map2
+
+combined_map <- tmap_arrange(map1, map2, ncol = 2)
+combined_map
 ```
 
 #### Find suitable locations
 
 ```{r}
+#| code-fold: true
+#| code-summary: "Show the code"
 
+suit_hab_fun <- function(max_depth, min_depth, max_temp, min_temp, spec){
+  # create a raster that is 1 where the conditions are met and 0 where they are not
+  suitable_habitat <- sst_mean_celsius >= min_temp & 
+    sst_mean_celsius <= max_temp & 
+    bathy_crop >= min_depth & 
+    bathy_crop <= max_depth
+  
+  # calculate the area of suitable habitat in each EEZ
+  suitable_habitat_area <- terra::zonal(suitable_habitat, 
+                                        wc_eez, 
+                                        fun = "sum")
+  
+  # plot the results
+  tm_shape(wc_eez) + 
+    tm_fill("suitable_habitat_area", 
+            title = paste("Suitable area for", spec), 
+            style = "cont", 
+            palette = "viridis") + 
+    tm_layout(legend.outside = TRUE, 
+              frame = FALSE)
+}
 ```
 
 #### Determine the most suitable EEZ
 
 ```{r}
+#| code-fold: true
+#| code-summary: "Show the code"
+
 
 ```
 
@@ -220,19 +284,4 @@ Hall, S. J., Delaporte, A., Phillips, M. J., Beveridge, M. & O’Keefe, M. Blue 
 
 Harbo, R. M. (1997). Shells & shellfish of the Pacific northwest: a field guide. Madiera Park, BC: Harbour Publishing.
 
-Shaw, W N. (1986) Species profiles: life histories and environmental requirements of coastal fishes and invertebrates (Pacific Southwest): Common littleneck clam. [Protothaca staminea]. United States.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Shaw, W N. (1986) Species profiles: life histories and environmental requirements of coastal fishes and invertebrates (Pacific Southwest): Common littleneck clam. *Protothaca staminea*. United States.
